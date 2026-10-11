@@ -51,7 +51,7 @@
 </head>
 <body>
 
-<textarea id="text">你好，這是測試。</textarea>
+<textarea id="text">你好</textarea>
 <button id="speakBtn">🔊 朗讀</button>
 <div id="status">檢查語音中…</div>
 
@@ -64,7 +64,7 @@ const textEl = document.getElementById('text');
 let voicesReady = false;
 let zhVoice = null;
 
-// 1. 等待語音列表就緒
+// 1. 等待語音列表就緒（iOS 的 getVoices() 是非同步載入的）
 function loadVoices() {
   const voices = synth.getVoices();
   if (voices.length === 0) return;
@@ -99,10 +99,11 @@ speakBtn.addEventListener('click', () => {
   let text = textEl.value.trim();
   if (!text) { statusEl.textContent = '請輸入文字。'; return; }
 
-  // 3. 規避 iOS 26 凍結 bug：把尖括號替換成全形符號
+  // 3. 規避 iOS 26+ 的凍結 Bug
+  // 如果文本以 < 開頭、> 結尾，且包含中文字符，就替換掉尖括號
   if (text.startsWith('<') && text.endsWith('>') && /[\u4e00-\u9fff]/.test(text)) {
     text = text.replace(/[<>]/g, ch => ({ '<': '\uff1c', '>': '\uff1e' }[ch]));
-    statusEl.textContent = '⚠️ 已自動替換尖括號以避開 iOS 26 bug';
+    statusEl.textContent = '⚠️ 已自動替換尖括號以避開 iOS Bug';
   }
 
   const utter = new SpeechSynthesisUtterance(text);
