@@ -3,190 +3,128 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TTS 測試（HTTP/HTTPS 檢測）</title>
+<title>語音合成測試</title>
 <style>
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", sans-serif;
-    font-size: 17px;
-    line-height: 1.5;
+    font-family: -apple-system, "PingFang TC", sans-serif;
     padding: 20px;
+    line-height: 1.5;
     background: #f5f5f7;
     color: #1d1d1f;
-  }
-  .card {
-    background: #fff;
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 16px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
   }
   textarea {
     width: 100%;
     box-sizing: border-box;
     font-size: 17px;
-    line-height: 1.5;
     padding: 10px;
+    min-height: 80px;
     border: 1px solid #d2d2d7;
     border-radius: 8px;
-    min-height: 80px;
     font-family: inherit;
+    line-height: 1.5;
   }
   button {
     width: 100%;
     font-size: 17px;
     padding: 14px;
+    margin-top: 12px;
     border: none;
     border-radius: 10px;
     background: #0071e3;
     color: #fff;
     font-weight: 500;
-    margin-top: 12px;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
   button:active { opacity: 0.75; }
-  button:disabled {
-    background: #c7c7cc;
-    cursor: not-allowed;
-  }
+  button:disabled { background: #c7c7cc; }
   #status {
     font-size: 14px;
     margin-top: 12px;
     padding: 10px;
     border-radius: 8px;
+    background: #e8e8ed;
     line-height: 1.4;
+    white-space: pre-wrap;
   }
-  .ok { background: #d1f2d1; color: #1a5c1a; }
-  .warn { background: #fff3cd; color: #7a5c00; }
-  .err { background: #ffd7d7; color: #8a1a1a; }
-  .info { background: #e8e8ed; color: #1d1d1f; }
 </style>
 </head>
 <body>
 
-<div class="card">
-  <textarea id="text">你好，這是測試文字。</textarea>
-  <button id="speakBtn">🔊 朗讀</button>
-  <button id="stopBtn" style="background:#e8e8ed;color:#1d1d1f;">⏹ 停止</button>
-  <div id="status" class="info">檢查環境中…</div>
-</div>
+<textarea id="text">你好，這是測試。</textarea>
+<button id="speakBtn">🔊 朗讀</button>
+<div id="status">檢查語音中…</div>
 
 <script>
-(function () {
-  const textEl = document.getElementById('text');
-  const speakBtn = document.getElementById('speakBtn');
-  const stopBtn = document.getElementById('stopBtn');
-  const statusEl = document.getElementById('status');
+const synth = window.speechSynthesis;
+const statusEl = document.getElementById('status');
+const speakBtn = document.getElementById('speakBtn');
+const textEl = document.getElementById('text');
 
-  // ========== 1. 檢查是否為安全來源 ==========
-  const isSecure = window.isSecureContext;
-  const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-  const canUseTTS = isSecure || isLocalhost;
+let voicesReady = false;
+let zhVoice = null;
 
-  console.log('isSecureContext:', isSecure);
-  console.log('hostname:', location.hostname);
-  console.log('protocol:', location.protocol);
-  console.log('canUseTTS:', canUseTTS);
+// 1. 等待語音列表就緒
+function loadVoices() {
+  const voices = synth.getVoices();
+  if (voices.length === 0) return;
 
-  // ========== 2. 檢查 API 是否存在 ==========
-  const hasAPI = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+  voicesReady = true;
 
-  if (!canUseTTS) {
-    statusEl.className = 'err';
-    statusEl.innerHTML = '⚠️ <b>非安全來源，TTS 已被 iOS 靜默禁用</b><br>' +
-      '目前網址：' + location.origin + '<br>' +
-      'iOS Safari 要求 HTTPS 或 localhost 才能使用語音合成。<br>' +
-      '請改用 HTTPS 訪問，或先在 Mac/PC 的 Safari 測試。';
-    speakBtn.disabled = true;
-    stopBtn.disabled = true;
-    return;
+  // 優先選中文語音
+  zhVoice = voices.find(v => /zh[-_]?(TW|HK|CN)/i.test(v.lang))
+         || voices.find(v => /^zh/i.test(v.lang));
+
+  if (zhVoice) {
+    statusEl.textContent = '✅ 語音就緒：' + zhVoice.name + ' (' + zhVoice.lang + ')';
+  } else {
+    statusEl.textContent = '⚠️ 未找到中文語音，將使用預設語音';
+  }
+}
+
+// 監聽 voiceschanged，同時輪詢兜底（Safari 首次互動後才載入語音）
+synth.onvoiceschanged = loadVoices;
+loadVoices();
+
+let pollCount = 0;
+const poll = setInterval(() => {
+  if (voicesReady || pollCount++ > 20) { clearInterval(poll); return; }
+  loadVoices();
+}, 250);
+
+// 2. 朗讀
+speakBtn.addEventListener('click', () => {
+  synth.cancel(); // 清除阻塞佇列
+
+  let text = textEl.value.trim();
+  if (!text) { statusEl.textContent = '請輸入文字。'; return; }
+
+  // 3. 規避 iOS 26 凍結 bug：把尖括號替換成全形符號
+  if (text.startsWith('<') && text.endsWith('>') && /[\u4e00-\u9fff]/.test(text)) {
+    text = text.replace(/[<>]/g, ch => ({ '<': '\uff1c', '>': '\uff1e' }[ch]));
+    statusEl.textContent = '⚠️ 已自動替換尖括號以避開 iOS 26 bug';
   }
 
-  if (!hasAPI) {
-    statusEl.className = 'err';
-    statusEl.textContent = '此瀏覽器不支援語音合成 API。';
-    speakBtn.disabled = true;
-    stopBtn.disabled = true;
-    return;
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = zhVoice ? zhVoice.lang : 'zh-TW';
+  utter.rate = 1.0;
+  utter.pitch = 1.0;
+  utter.volume = 1.0;
+
+  // 4. 關鍵：顯式指定 voice，否則 iOS 可能靜默失敗
+  if (zhVoice) {
+    utter.voice = zhVoice;
+  } else {
+    const allVoices = synth.getVoices();
+    if (allVoices.length > 0) utter.voice = allVoices[0];
   }
 
-  // ========== 3. 檢查語音是否可用 ==========
-  const synth = window.speechSynthesis;
+  utter.onstart = () => { statusEl.textContent = '🔊 播放中…'; };
+  utter.onend = () => { statusEl.textContent = '✅ 播放完畢。'; };
+  utter.onerror = (e) => { statusEl.textContent = '❌ 錯誤：' + e.error; };
 
-  function checkVoices() {
-    const voices = synth.getVoices();
-    if (voices.length === 0) {
-      statusEl.className = 'warn';
-      statusEl.innerHTML = '⚠️ 語音列表為空。<br>' +
-        '請確認：設置 → 輔助功能 → 朗讀內容 → 語音 中已下載中文語音。';
-    } else {
-      const zhVoices = voices.filter(v => /^zh/i.test(v.lang));
-      statusEl.className = 'ok';
-      statusEl.innerHTML = '✅ 環境正常。偵測到 ' + voices.length + ' 個語音' +
-        (zhVoices.length ? '，其中中文語音 ' + zhVoices.length + ' 個' : '，但未找到中文語音');
-    }
-  }
-
-  checkVoices();
-  if (typeof synth.onvoiceschanged !== 'undefined') {
-    synth.onvoiceschanged = checkVoices;
-  }
-
-  // ========== 4. 朗讀 ==========
-  speakBtn.addEventListener('click', () => {
-    synth.cancel(); // 清除可能的阻塞狀態
-
-    const text = textEl.value.trim();
-    if (!text) {
-      statusEl.className = 'warn';
-      statusEl.textContent = '請輸入文字。';
-      return;
-    }
-
-    // 檢測 iOS 26 已知 bug：文本以 < 開頭、> 結尾、包含中文
-    if (text.startsWith('<') && text.endsWith('>') && /[\u4e00-\u9fff]/.test(text)) {
-      statusEl.className = 'err';
-      statusEl.textContent = '⚠️ 此文本格式會觸發 iOS 26 已知 bug，請避免以 <> 包裹中文。';
-      return;
-    }
-
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'zh-TW';
-    utter.rate = 1.0;
-    utter.pitch = 1.0;
-    utter.volume = 1.0;
-
-    // 只有當 voices 有內容時才指定 voice
-    const voices = synth.getVoices();
-    if (voices.length > 0) {
-      const zhVoice = voices.find(v => /zh[-_]?(TW|HK|CN)/i.test(v.lang))
-                   || voices.find(v => /^zh/i.test(v.lang));
-      if (zhVoice) utter.voice = zhVoice;
-    }
-
-    utter.onstart = () => {
-      statusEl.className = 'ok';
-      statusEl.textContent = '🔊 播放中…';
-    };
-    utter.onend = () => {
-      statusEl.className = 'info';
-      statusEl.textContent = '✅ 播放完畢。';
-    };
-    utter.onerror = (e) => {
-      statusEl.className = 'err';
-      statusEl.textContent = '❌ 錯誤：' + e.error;
-    };
-
-    synth.speak(utter);
-  });
-
-  stopBtn.addEventListener('click', () => {
-    synth.cancel();
-    statusEl.className = 'info';
-    statusEl.textContent = '⏹ 已停止。';
-  });
-
-})();
+  synth.speak(utter);
+});
 </script>
 
 </body>
