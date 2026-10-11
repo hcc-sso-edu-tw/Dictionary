@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Dictionary</title>
-<link href="Resources/icon_512x512@2x.png" rel="apple-touch-icon" type="image/png">
+<link href="Resources/icon_512x512@2x.png" rel="icon" type="image/png">
 <link href="default.css" rel="stylesheet">
 <link href="Resources/DefaultStyle.css" rel="stylesheet">
 <script src="inflate.min.js"></script>
@@ -13,7 +13,11 @@
 */
 
 window.onload = () => (async () => {
+	const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+	if (isMobile) {
 	document.body.style.zoom = 3;
+	}
+
 	const params = new URLSearchParams(window.location.search);
 	const password = params.has('e') ? params.get('e') : prompt();
 
