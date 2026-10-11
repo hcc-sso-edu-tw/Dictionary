@@ -13,6 +13,7 @@
 */
 
 window.onload = () => (async () => {
+	document.body.style.zoom = 3;
 	const params = new URLSearchParams(window.location.search);
 	const password = params.has('e') ? params.get('e') : prompt();
 
