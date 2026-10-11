@@ -129,7 +129,7 @@ window.onload = () => (async () => {
 
 	input.oninput = function () {
 		let d = "";
-		const s = this.value, m = [];
+		const s = this.value.toLowerCase(), m = [];
 		if (s != "") {
 			for (let key of keys) {
 				if (key[3] == s) {
