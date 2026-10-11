@@ -18,7 +18,22 @@ body {
 /System/Library/AssetsV2/com_apple_MobileAsset_DictionaryServices_dictionaryOSX/40c48f5b5c6b15a4b13adef364a888837aa5a196.asset/AssetData/Traditional Chinese - English.dictionary/Contents/Resources/KeyText.data
 */
 
+let hasEnabledVoice = false;
+
+document.addEventListener('click', () => {
+  if (hasEnabledVoice) return;
+  const lecture = new SpeechSynthesisUtterance('hello');
+  lecture.volume = 0;
+  speechSynthesis.speak(lecture);
+  hasEnabledVoice = true;
+}, { once: true });
+
 window.onload = () => (async () => {
+	const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+	if (isMobile) {
+	document.body.style.zoom = 3;
+	}
+
 	const params = new URLSearchParams(window.location.search);
 	const password = params.has('e') ? params.get('e') : prompt();
 
