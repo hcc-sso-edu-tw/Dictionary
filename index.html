@@ -19,11 +19,6 @@ body {
 */
 
 window.onload = () => (async () => {
-	const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-	if (isMobile) {
-	document.body.style.zoom = 3;
-	}
-
 	const params = new URLSearchParams(window.location.search);
 	const password = params.has('e') ? params.get('e') : prompt();
 
