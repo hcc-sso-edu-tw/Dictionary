@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Dictionary</title>
+<link href="Resources/icon_512x512@2x.png" rel="icon" type="image/png">
+<link href="default.css" rel="stylesheet">
+<link href="Resources/DefaultStyle.css" rel="stylesheet">
+<script src="inflate.min.js"></script>
+<script>
+/*
+/System/Library/AssetsV2/com_apple_MobileAsset_DictionaryServices_dictionaryOSX/40c48f5b5c6b15a4b13adef364a888837aa5a196.asset/AssetData/Traditional Chinese - English.dictionary/Contents/Resources/KeyText.data
+*/
+
+window.onload = () => (async () => {
+	const params = new URLSearchParams(window.location.search);
+	const password = params.has('e') ? params.get('e') : prompt();
+
+	const say = (s) => {
+		const u = new SpeechSynthesisUtterance(s);
+		window.speechSynthesis.speak(u);
+	};
+
+	async function deriveKey(password, salt, iterations = 100000) {
+		const enc = new TextEncoder();
+		const keyMaterial = await crypto.subtle.importKey(
+			'raw',
+			enc.encode(password),
+			'PBKDF2',
+			false,
+			['deriveKey']
+		);
+		return crypto.subtle.deriveKey(
+			{
+				name: 'PBKDF2',
+				salt: salt,
+				iterations: iterations,
+				hash: 'SHA-256'
+			},
+			keyMaterial,
+			{ name: 'AES-GCM', length: 256 },
+			false,
+			['encrypt', 'decrypt']
+		);
+	}
+
+	async function decryptFile(packedBuffer, password) {
+		const packed = new Uint8Array(packedBuffer);
+		// minimum size: 16 salt + 12 iv + at least 16 tag = 44
+		if (packed.length < 44) {
+			throw new Error('File too small or corrupted (missing salt/iv/tag)');
+		}
+
+		const salt = packed.slice(0, 16);
+		const iv = packed.slice(16, 28);
+		const ciphertext = packed.slice(28);
+
+		const key = await deriveKey(password, salt);
+
+		const plainBuffer = await crypto.subtle.decrypt(
+			{ name: 'AES-GCM', iv: iv },
+			key,
+			ciphertext
+		);
+
+		return plainBuffer;
+	}
+
+	const keyText = new Uint8Array(await decryptFile(await (await fetch("Resources/KeyText.data")).arrayBuffer(), password)).subarray(0x40);
+	const body = new Uint8Array(await decryptFile(await (await fetch("Resources/Body.data")).arrayBuffer(), password)).subarray(0x40);
+
+	const getUint16 = (buffer, offset) => buffer[offset] | buffer[offset + 1] << 8;
+	const getUint32 = (buffer, offset) => buffer[offset] | buffer[offset + 1] << 8 | buffer[offset + 2] << 16 | buffer[offset + 3] << 24;
+	const decompress = (buffer, offset) => new Zlib.Inflate(buffer.subarray(offset + 8, offset + getUint32(buffer, offset) + 4), { "bufferSize": getUint32(buffer, offset + 4) }).decompress();
+	const utf8Decode = (() => {
+		const decoder = new TextDecoder("utf-8");
+		return (buffer, begin, end) => decoder.decode(buffer.subarray(begin, end));
+	})();
+	const utf16Decode = (() => {
+		const decoder = new TextDecoder("utf-16");
+		return (buffer, begin, end) => decoder.decode(buffer.subarray(begin, end));
+	})();
+
+	const keys = [];
+	const end = getUint32(keyText, 0), bs = getUint32(keyText, 4);
+	for (let i = 8; i < end; i += bs) {
+		const b = decompress(keyText, i);
+		let o0 = 0;
+		while (o0 < b.length) {
+			const l = getUint32(b, o0); o0 += 4;
+			let o1 = o0;
+			const n = getUint32(b, o1); o1 += 4;
+			for (let j = 0; j < n; j++) {
+				const end = getUint16(b, o1) + o1 + 2; o1 += 2;
+				const key = [getUint32(b, o1), getUint32(b, o1 + 4), getUint16(b, o1 + 8)]; o1 += 10;
+				while (o1 < end) {
+					const l = getUint16(b, o1); o1 += 2;
+					key.push(utf16Decode(b, o1, o1 + l)); o1 += l;
+				}
+				keys.push(key);
+			}
+			o0 += l;
+		}
+	}
+
+	const input = document.body.appendChild(document.createElement("input"));
+	const button = document.body.appendChild(document.createElement("button"));
+	button.textContent = "🗣️";
+	button.addEventListener("click", () => say(input.value));
+	document.body.appendChild(document.createElement("hr"));
+	const output = document.body.appendChild(document.createElement("div"));
+
+	input.oninput = function () {
+		let d = "";
+		const s = this.value, m = [];
+		if (s != "") {
+			for (let key of keys) {
+				if (key[3] == s) {
+					const b = decompress(body, key[1] + 4);
+					const l = getUint32(b, key[0]);
+					d += utf8Decode(b, key[0] + 4, key[0] + l + 4)
+						.replace(/>([\u3105-\u3126])(\u02d9)</g, ">$1<span class=\"tone t1\">$2</span><")
+						.replace(/>([\u3105-\u3126][\u3105-\u3126])(\u02d9)</g, ">$1<span class=\"tone t1 c2\">$2</span><")
+						.replace(/>([\u3105-\u3126][\u3105-\u3126][\u3105-\u3126])(\u02d9)</g, ">$1<span class=\"tone t1 c3\">$2</span><");
+				} else if (m.length < 1000 && key[3].search(s) == 0) {
+					m.push(key[3]);
+				}
+			}
+			output.innerHTML = d != "" ? d : m.join("<br>");
+		}
+	};
+})();
+
+/*
+	const utf8Decode = (buffer, begin, end) => {
+		let value = "", i = begin;
+		while (i < end) {
+			const byte = buffer[i++];
+			value += String.fromCodePoint(
+				byte < 0x80 ? byte :
+				byte < 0xc0 ? 0x3f :
+				byte < 0xe0 && i < end ? byte << 6 & 0x7c0 | buffer[i++] & 0x3f :
+				byte < 0xf0 && i + 1 < end ? byte << 12 & 0xf000 | buffer[i++] << 6 & 0xfc0 | buffer[i++] & 0x3f :
+				byte < 0xf8 && i + 2 < end ? byte << 18 & 0x1c0000 | buffer[i++] << 12 & 0x3f000 | buffer[i++] << 6 & 0xfc0 | buffer[i++] & 0x3f :
+				0x3f);
+		}
+		return value;
+	};
+	const utf16Decode = (buffer, begin, end) => {
+		let value = "", i = begin;
+		while (i < end)
+			value += String.fromCharCode(buffer[i++] | buffer[i++] << 8);
+		return value;
+	};
+*/
+</script>
+</head>
+<body></body>
+</html>
